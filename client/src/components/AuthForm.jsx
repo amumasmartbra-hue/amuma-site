@@ -5,8 +5,8 @@ import {
   signInWithEmailAndPassword,
   updateProfile,
 } from 'firebase/auth'
-import { Eye, EyeOff } from "lucide-react";
-
+import { getDatabase, ref, set } from 'firebase/database'
+import { Eye, EyeOff } from 'lucide-react'
 
 function AuthForm({ type = 'login', onSwitch, setActivePage }) {
   const [showPassword, setShowPassword] = useState(false)
@@ -14,6 +14,7 @@ function AuthForm({ type = 'login', onSwitch, setActivePage }) {
   const [fullName, setFullName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [device, setDevice] = useState('device_1')
 
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -30,6 +31,7 @@ function AuthForm({ type = 'login', onSwitch, setActivePage }) {
     try {
       if (isLogin) {
         await signInWithEmailAndPassword(auth, email, password)
+
         setSuccess('Login successful.')
         setActivePage('dashboard')
       } else {
@@ -39,11 +41,33 @@ function AuthForm({ type = 'login', onSwitch, setActivePage }) {
           password
         )
 
+        const user = userCredential.user
+
+        // Save display name
         if (fullName.trim()) {
-          await updateProfile(userCredential.user, {
-            displayName: fullName,
+          await updateProfile(user, {
+            displayName: fullName.trim(),
           })
         }
+
+        const db = getDatabase()
+
+        // SAVE USER DATA
+        await set(ref(db, `amuma/users/${user.uid}`), {
+          uid: user.uid,
+          fullName: fullName.trim(),
+          email: user.email,
+          assignedDevice: device,
+          role: 'user',
+          status: 'active',
+          createdAt: new Date().toISOString(),
+        })
+
+        // LINK USER TO DEVICE
+        await set(ref(db, `amuma/devices/${device}/user`), {
+          uid: user.uid,
+          email: user.email,
+        })
 
         setSuccess('Account created successfully.')
         setActivePage('dashboard')
@@ -63,6 +87,8 @@ function AuthForm({ type = 'login', onSwitch, setActivePage }) {
         message = 'Incorrect password.'
       } else if (err.code === 'auth/invalid-credential') {
         message = 'Invalid email or password.'
+      } else if (err.code === 'PERMISSION_DENIED') {
+        message = 'Database permission denied.'
       }
 
       setError(message)
@@ -88,18 +114,37 @@ function AuthForm({ type = 'login', onSwitch, setActivePage }) {
 
           <form onSubmit={handleSubmit}>
             {!isLogin && (
-              <div className="auth-input-group">
-                <span className="auth-input-icon">👤</span>
-                <input
-                  type="text"
-                  placeholder="Full Name"
-                  value={fullName}
-                  onChange={(e) => setFullName(e.target.value)}
-                  required={!isLogin}
-                />
-              </div>
+              <>
+                {/* FULL NAME */}
+                <div className="auth-input-group">
+                  <span className="auth-input-icon">👤</span>
+                  <input
+                    type="text"
+                    placeholder="Full Name"
+                    value={fullName}
+                    onChange={(e) => setFullName(e.target.value)}
+                    required
+                  />
+                </div>
+
+                {/* DEVICE DROPDOWN (IMPROVED UI) */}
+                <div className="auth-input-group device-select-group">
+                  <span className="auth-input-icon">📟</span>
+
+                  <select
+                    value={device}
+                    onChange={(e) => setDevice(e.target.value)}
+                    required
+                    className="auth-select"
+                  >
+                    <option value="device_1">Device 1</option>
+                    <option value="device_2">Device 2</option>
+                  </select>
+                </div>
+              </>
             )}
 
+            {/* EMAIL */}
             <div className="auth-input-group">
               <span className="auth-input-icon">✉</span>
               <input
@@ -111,6 +156,7 @@ function AuthForm({ type = 'login', onSwitch, setActivePage }) {
               />
             </div>
 
+            {/* PASSWORD */}
             <div className="auth-input-group">
               <span className="auth-input-icon">🔒</span>
               <input
@@ -128,17 +174,6 @@ function AuthForm({ type = 'login', onSwitch, setActivePage }) {
                 {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
               </button>
             </div>
-
-            {isLogin ? (
-              <div className="auth-forgot-row">
-                <a href="#">Forgot password?</a>
-              </div>
-            ) : (
-              <p className="auth-terms-text">
-                By signing up, you agree to our <a href="#">Terms of Service</a>{' '}
-                and <a href="#">Privacy Policy</a>
-              </p>
-            )}
 
             {error && <p className="auth-message error">{error}</p>}
             {success && <p className="auth-message success">{success}</p>}
@@ -159,15 +194,6 @@ function AuthForm({ type = 'login', onSwitch, setActivePage }) {
           <p className="auth-bottom-text">
             {isLogin ? "Don't have an account?" : 'Already have an account?'}
           </p>
-
-          {/* <div className="auth-social-row">
-            <button className="auth-social-btn" type="button">
-              Google
-            </button>
-            <button className="auth-social-btn" type="button">
-              Apple
-            </button>
-          </div> */}
 
           <button className="auth-switch-btn" onClick={onSwitch} type="button">
             {isLogin ? 'Create an account' : 'Back to login'}
