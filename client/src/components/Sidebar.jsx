@@ -71,13 +71,13 @@ function Sidebar({ activePage, setActivePage }) {
             <span>Dashboard</span>
           </button>
 
-          {/* <button
+          <button
             className={`nav-item ${activePage === 'history' ? 'active' : ''}`}
             onClick={() => handlePageChange('history')}
           >
             <span className="nav-icon">🕘</span>
             <span>History</span>
-          </button> */}
+          </button>
 
           <button
             className="nav-item logout-btn"

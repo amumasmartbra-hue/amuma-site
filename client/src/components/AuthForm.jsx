@@ -33,7 +33,11 @@ function AuthForm({ type = 'login', onSwitch, setActivePage }) {
         await signInWithEmailAndPassword(auth, email, password)
 
         setSuccess('Login successful.')
-        setActivePage('dashboard')
+
+        // smooth transition
+        setTimeout(() => {
+          setActivePage('dashboard')
+        }, 300)
       } else {
         const userCredential = await createUserWithEmailAndPassword(
           auth,
@@ -43,7 +47,7 @@ function AuthForm({ type = 'login', onSwitch, setActivePage }) {
 
         const user = userCredential.user
 
-        // Save display name
+        // Set display name
         if (fullName.trim()) {
           await updateProfile(user, {
             displayName: fullName.trim(),
@@ -52,7 +56,7 @@ function AuthForm({ type = 'login', onSwitch, setActivePage }) {
 
         const db = getDatabase()
 
-        // SAVE USER DATA
+        // Save user data
         await set(ref(db, `amuma/users/${user.uid}`), {
           uid: user.uid,
           fullName: fullName.trim(),
@@ -63,14 +67,12 @@ function AuthForm({ type = 'login', onSwitch, setActivePage }) {
           createdAt: new Date().toISOString(),
         })
 
-        // LINK USER TO DEVICE
-        await set(ref(db, `amuma/devices/${device}/user`), {
-          uid: user.uid,
-          email: user.email,
-        })
-
         setSuccess('Account created successfully.')
-        setActivePage('dashboard')
+
+        // small delay to ensure Firebase write is completed
+        setTimeout(() => {
+          setActivePage('dashboard')
+        }, 500)
       }
     } catch (err) {
       let message = 'Something went wrong.'
@@ -127,7 +129,7 @@ function AuthForm({ type = 'login', onSwitch, setActivePage }) {
                   />
                 </div>
 
-                {/* DEVICE DROPDOWN (IMPROVED UI) */}
+                {/* DEVICE SELECT */}
                 <div className="auth-input-group device-select-group">
                   <span className="auth-input-icon">📟</span>
 
@@ -166,6 +168,7 @@ function AuthForm({ type = 'login', onSwitch, setActivePage }) {
                 onChange={(e) => setPassword(e.target.value)}
                 required
               />
+
               <button
                 type="button"
                 className="password-toggle"

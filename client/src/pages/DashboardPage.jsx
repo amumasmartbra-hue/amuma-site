@@ -1,14 +1,17 @@
-import { useEffect, useState } from 'react'
-import { ref, onValue } from 'firebase/database'
-import { db } from '../firebase'
+import { useEffect, useRef, useState } from 'react'
+import { ref, onValue, get, push, set } from 'firebase/database'
+import { onAuthStateChanged } from 'firebase/auth'
+import { db, auth } from '../firebase'
 
 import Sidebar from '../components/Sidebar'
 import Topbar from '../components/Topbar'
 import StatCard from '../components/StatCard'
-import InfoCard from '../components/InfoCard'
 import ECGCard from '../components/ECGCard'
 
 function DashboardPage({ setActivePage }) {
+  const lastSavedTimestamp = useRef(null)
+
+  const [assignedDevice, setAssignedDevice] = useState('')
   const [currentData, setCurrentData] = useState({
     heartRate: 0,
     respiratoryRate: 0,
@@ -18,26 +21,77 @@ function DashboardPage({ setActivePage }) {
   })
 
   useEffect(() => {
-    const currentReadingsRef = ref(db, 'amuma/currentReadings')
+    let unsubscribeDeviceData = null
 
-    const unsubscribe = onValue(currentReadingsRef, (snapshot) => {
-      const data = snapshot.val()
+    const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
+      if (!user) {
+        setActivePage('login')
+        return
+      }
 
-      if (data) {
-        setCurrentData({
-          heartRate: data.heartRate ?? 0,
-          respiratoryRate: data.respiratoryRate ?? 0,
-          lungSound: data.lungSound ?? 'No Data',
-          ecgSamples: Array.isArray(data.ecgSamples)
-            ? data.ecgSamples
-            : Object.values(data.ecgSamples ?? {}),
-          timestamp: data.timestamp ?? null,
+      try {
+        const userRef = ref(db, `amuma/users/${user.uid}`)
+        const userSnap = await get(userRef)
+
+        if (!userSnap.exists()) {
+          console.log('User data not found.')
+          return
+        }
+
+        const userData = userSnap.val()
+        const deviceId = userData.assignedDevice
+
+        if (!deviceId) {
+          console.log('No assigned device found.')
+          return
+        }
+
+        setAssignedDevice(deviceId)
+
+        const currentReadingsRef = ref(
+          db,
+          `amuma/devices/${deviceId}/currentReadings`
+        )
+
+        unsubscribeDeviceData = onValue(currentReadingsRef, async (snapshot) => {
+          const data = snapshot.val()
+
+          if (!data) return
+
+          const formattedData = {
+            deviceId,
+            heartRate: data.heartRate ?? 0,
+            respiratoryRate: data.respiratoryRate ?? 0,
+            lungSound: data.lungSound ?? 'No Data',
+            ecgSamples: Array.isArray(data.ecgSamples)
+              ? data.ecgSamples
+              : Object.values(data.ecgSamples ?? {}),
+            timestamp: data.timestamp ?? new Date().toISOString(),
+          }
+
+          setCurrentData(formattedData)
+
+          if (formattedData.timestamp !== lastSavedTimestamp.current) {
+            lastSavedTimestamp.current = formattedData.timestamp
+
+            const historyRef = push(ref(db, `amuma/users/${user.uid}/history`))
+
+            await set(historyRef, {
+              ...formattedData,
+              savedAt: new Date().toISOString(),
+            })
+          }
         })
+      } catch (error) {
+        console.error('Dashboard data error:', error)
       }
     })
 
-    return () => unsubscribe()
-  }, [])
+    return () => {
+      unsubscribeAuth()
+      if (unsubscribeDeviceData) unsubscribeDeviceData()
+    }
+  }, [setActivePage])
 
   const getLungStatusText = (lungSound) => {
     if (!lungSound) return 'No Data'
@@ -61,17 +115,17 @@ function DashboardPage({ setActivePage }) {
       <Sidebar activePage="dashboard" setActivePage={setActivePage} />
 
       <main className="main-content">
-        <Topbar />
+        <Topbar assignedDevice={assignedDevice} />
 
+        {/* CLEAN STATS */}
         <section className="stats-grid">
           <StatCard
             type="heart"
             title="Heart Rate"
-            value={String(currentData.heartRate)}
+            value={currentData.heartRate || '--'}
             unit="BPM"
-            subtitle="Live heartbeat reading"
+            subtitle="Live"
             status={getHeartStatus(currentData.heartRate)}
-            bottomLeft={`${currentData.heartRate} BPM`}
             bigStatus={getHeartStatus(currentData.heartRate)}
           />
 
@@ -79,26 +133,27 @@ function DashboardPage({ setActivePage }) {
             type="lungs"
             title="Lungs"
             value={getLungStatusText(currentData.lungSound)}
-            unit=""
-            subtitle="Breathing sound analysis"
+            subtitle="Analysis"
             status={getLungStatusText(currentData.lungSound)}
-            bottomLeft={`${currentData.ecgSamples?.length || 0}`}
-            bigStatus="Normal"
+            bigStatus={getLungStatusText(currentData.lungSound)}
           />
 
           <StatCard
             type="respiration"
             title="Respiration"
-            value={String(currentData.respiratoryRate)}
+            value={currentData.respiratoryRate || '--'}
             unit="BrPM"
-            subtitle="Live respiration reading"
+            subtitle="Live"
             status={getRespirationStatus(currentData.respiratoryRate)}
-            bottomLeft={`${currentData.respiratoryRate} BrPM`}
             bigStatus={getRespirationStatus(currentData.respiratoryRate)}
           />
         </section>
 
-        <ECGCard ecgSamples={currentData.ecgSamples} heartRate={currentData.heartRate} />
+        {/* ECG */}
+        <ECGCard
+          ecgSamples={currentData.ecgSamples}
+          heartRate={currentData.heartRate}
+        />
       </main>
     </div>
   )

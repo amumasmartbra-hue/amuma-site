@@ -1,65 +1,77 @@
 import { useEffect, useMemo, useState } from 'react'
 import { ref, onValue, remove } from 'firebase/database'
+import { onAuthStateChanged } from 'firebase/auth'
 import * as XLSX from 'xlsx'
 import { saveAs } from 'file-saver'
-import { db } from '../firebase'
+
+import { db, auth } from '../firebase'
 import Sidebar from '../components/Sidebar'
 
 function HistoryPage({ setActivePage }) {
   const [historyData, setHistoryData] = useState([])
   const [isDeleting, setIsDeleting] = useState(false)
+  const [currentUser, setCurrentUser] = useState(null)
 
   const formatTimestamp = (timestamp) => {
-    if (!timestamp && timestamp !== 0) return 'No timestamp'
+    if (!timestamp) return 'No timestamp'
 
-    const numericTimestamp = Number(timestamp)
+    const date = new Date(timestamp)
 
-    if (Number.isNaN(numericTimestamp)) return 'Invalid time'
-
-    if (numericTimestamp > 1000000000000) {
-      return new Date(numericTimestamp).toLocaleString()
+    if (!Number.isNaN(date.getTime())) {
+      return date.toLocaleString()
     }
 
-    if (numericTimestamp > 1000000000) {
-      return new Date(numericTimestamp * 1000).toLocaleString()
-    }
-
-    const totalSeconds = Math.floor(numericTimestamp / 1000)
-    const minutes = Math.floor(totalSeconds / 60)
-    const seconds = totalSeconds % 60
-
-    return `${minutes}m ${seconds}s ago`
+    return String(timestamp)
   }
 
   useEffect(() => {
-    const historyRef = ref(db, 'amuma/history')
+    let unsubscribeHistory = null
 
-    const unsubscribe = onValue(historyRef, (snapshot) => {
-      const data = snapshot.val()
-
-      if (!data) {
+    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+      if (!user) {
+        setCurrentUser(null)
         setHistoryData([])
         return
       }
 
-      const formatted = Object.entries(data).map(([key, value]) => ({
-        id: key,
-        time: formatTimestamp(value.timestamp),
-        rawTimestamp: Number(value.timestamp) || 0,
-        heartRate: value.heartRate ?? 0,
-        respiration: value.respiratoryRate ?? 0,
-        lungs: value.lungSound ?? 'No Data',
-        ecgSamples: Array.isArray(value.ecgSamples)
-          ? value.ecgSamples.join(', ')
-          : Object.values(value.ecgSamples ?? {}).join(', '),
-      }))
+      setCurrentUser(user)
 
-      formatted.sort((a, b) => b.rawTimestamp - a.rawTimestamp)
+      const historyRef = ref(db, `amuma/users/${user.uid}/history`)
 
-      setHistoryData(formatted)
+      unsubscribeHistory = onValue(historyRef, (snapshot) => {
+        const data = snapshot.val()
+
+        if (!data) {
+          setHistoryData([])
+          return
+        }
+
+        const formatted = Object.entries(data).map(([key, value]) => {
+          const displayTime = value.timestamp || value.savedAt || null
+
+          return {
+            id: key,
+            deviceId: value.deviceId ?? 'No Device',
+            time: formatTimestamp(displayTime),
+            rawTimestamp: new Date(displayTime).getTime() || 0,
+            heartRate: value.heartRate ?? 0,
+            respiration: value.respiratoryRate ?? 0,
+            lungs: value.lungSound ?? 'No Data',
+            ecgSamples: Array.isArray(value.ecgSamples)
+              ? value.ecgSamples.join(', ')
+              : Object.values(value.ecgSamples ?? {}).join(', '),
+          }
+        })
+
+        formatted.sort((a, b) => b.rawTimestamp - a.rawTimestamp)
+        setHistoryData(formatted)
+      })
     })
 
-    return () => unsubscribe()
+    return () => {
+      unsubscribeAuth()
+      if (unsubscribeHistory) unsubscribeHistory()
+    }
   }, [])
 
   const averageHeartRate = useMemo(() => {
@@ -83,27 +95,27 @@ function HistoryPage({ setActivePage }) {
     const excelData = historyData.map((item, index) => ({
       'No.': index + 1,
       'Record ID': item.id,
+      Device: item.deviceId,
       Time: item.time,
       'Heart Rate (BPM)': item.heartRate,
       'Respiration (BrPM)': item.respiration,
       Lungs: item.lungs,
-      'Raw Timestamp': item.rawTimestamp,
       'ECG Samples': item.ecgSamples,
     }))
 
     const worksheet = XLSX.utils.json_to_sheet(excelData)
     const workbook = XLSX.utils.book_new()
 
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'Health History')
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'User Health History')
 
     worksheet['!cols'] = [
       { wch: 8 },
-      { wch: 18 },
+      { wch: 24 },
+      { wch: 16 },
       { wch: 24 },
       { wch: 18 },
       { wch: 22 },
       { wch: 20 },
-      { wch: 18 },
       { wch: 60 },
     ]
 
@@ -117,7 +129,7 @@ function HistoryPage({ setActivePage }) {
     })
 
     const now = new Date()
-    const fileName = `amuma_health_history_${now.getFullYear()}-${String(
+    const fileName = `amuma_user_history_${now.getFullYear()}-${String(
       now.getMonth() + 1
     ).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}.xlsx`
 
@@ -130,8 +142,13 @@ function HistoryPage({ setActivePage }) {
       return
     }
 
+    if (!currentUser) {
+      alert('No logged-in user found.')
+      return
+    }
+
     const confirmed = window.confirm(
-      'Are you sure you want to delete all history data? This action cannot be undone.'
+      'Are you sure you want to delete all your history data? This action cannot be undone.'
     )
 
     if (!confirmed) return
@@ -139,7 +156,7 @@ function HistoryPage({ setActivePage }) {
     try {
       setIsDeleting(true)
 
-      const historyRef = ref(db, 'amuma/history')
+      const historyRef = ref(db, `amuma/users/${currentUser.uid}/history`)
       await remove(historyRef)
 
       alert('All history data has been deleted successfully.')
@@ -217,16 +234,19 @@ function HistoryPage({ setActivePage }) {
                 <thead>
                   <tr>
                     <th>Time</th>
+                    <th>Device</th>
                     <th>Heart Rate</th>
                     <th>Respiration</th>
                     <th>Lungs</th>
                   </tr>
                 </thead>
+
                 <tbody>
                   {historyData.length > 0 ? (
                     historyData.map((item) => (
                       <tr key={item.id}>
                         <td>{item.time}</td>
+                        <td>{item.deviceId}</td>
                         <td>{item.heartRate} BPM</td>
                         <td>{item.respiration} BrPM</td>
                         <td>{item.lungs}</td>
@@ -234,7 +254,10 @@ function HistoryPage({ setActivePage }) {
                     ))
                   ) : (
                     <tr>
-                      <td colSpan="4" style={{ textAlign: 'center', padding: '30px' }}>
+                      <td
+                        colSpan="5"
+                        style={{ textAlign: 'center', padding: '30px' }}
+                      >
                         No history data found
                       </td>
                     </tr>

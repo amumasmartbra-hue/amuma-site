@@ -1,4 +1,11 @@
-function Topbar() {
+function Topbar({ assignedDevice }) {
+  const deviceName =
+    assignedDevice === 'device_1'
+      ? 'Device 1'
+      : assignedDevice === 'device_2'
+      ? 'Device 2'
+      : 'No Device'
+
   return (
     <header className="topbar">
       <div>
@@ -6,17 +13,17 @@ function Topbar() {
         <p>Real-time maternal health monitoring</p>
       </div>
 
-      {/* <div className="topbar-right">
+      <div className="topbar-right">
         <div className="device-connected">
           <span className="online-dot"></span>
-          <span>Device Connected</span>
+          <span>{deviceName}</span>
           <span className="chevron">›</span>
         </div>
 
         <div className="date-time">
-          April 24, 2024 10:45 AM
+          {new Date().toLocaleString()}
         </div>
-      </div> */}
+      </div>
     </header>
   )
 }
