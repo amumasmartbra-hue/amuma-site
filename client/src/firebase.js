@@ -3,14 +3,14 @@ import { getDatabase } from 'firebase/database'
 import { getAuth } from 'firebase/auth'
 
 const firebaseConfig = {
-  apiKey: "AIzaSyBpf4LXqmLkpFtrsnIU_Xe4Sziv4eQcQTA",
-  authDomain: "amuma-smart-bra.firebaseapp.com",
-  databaseURL: "https://amuma-smart-bra-default-rtdb.asia-southeast1.firebasedatabase.app",
-  projectId: "amuma-smart-bra",
-  storageBucket: "amuma-smart-bra.firebasestorage.app",
-  messagingSenderId: "716685429019",
-  appId: "1:716685429019:web:0711c4464f4760e21a2bbe",
-  measurementId: "G-RZ9ZRW7JL1"
+  apiKey: "AIzaSyC75jEJKDnvqeWmBlOFojOnwjSmxwqKJAM",
+  authDomain: "amuma-smart-bra-data.firebaseapp.com",
+  databaseURL: "https://amuma-smart-bra-data-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "amuma-smart-bra-data",
+  storageBucket: "amuma-smart-bra-data.firebasestorage.app",
+  messagingSenderId: "631805517116",
+  appId: "1:631805517116:web:a9c20b01d58538ce719239",
+  measurementId: "G-HCGNHSL86D"
 };
 
 const app = initializeApp(firebaseConfig)
