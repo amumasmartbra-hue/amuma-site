@@ -10,7 +10,6 @@ function Topbar({ assignedDevice }) {
     <header className="topbar">
       <div>
         <h1>Dashboard</h1>
-        <p>Real-time maternal health monitoring</p>
       </div>
 
       <div className="topbar-right">

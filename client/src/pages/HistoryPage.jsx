@@ -11,6 +11,7 @@ function HistoryPage({ setActivePage }) {
   const [historyData, setHistoryData] = useState([])
   const [isDeleting, setIsDeleting] = useState(false)
   const [currentUser, setCurrentUser] = useState(null)
+  const [isLoading, setIsLoading] = useState(true)
 
   const formatTimestamp = (timestamp) => {
     if (!timestamp) return 'No timestamp'
@@ -28,61 +29,91 @@ function HistoryPage({ setActivePage }) {
     let unsubscribeHistory = null
 
     const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+      if (unsubscribeHistory) {
+        unsubscribeHistory()
+        unsubscribeHistory = null
+      }
+
       if (!user) {
         setCurrentUser(null)
         setHistoryData([])
+        setIsLoading(false)
         return
       }
 
       setCurrentUser(user)
+      setIsLoading(true)
 
       const historyRef = ref(db, `amuma/users/${user.uid}/history`)
 
-      unsubscribeHistory = onValue(historyRef, (snapshot) => {
-        const data = snapshot.val()
+      unsubscribeHistory = onValue(
+        historyRef,
+        (snapshot) => {
+          const data = snapshot.val()
 
-        if (!data) {
-          setHistoryData([])
-          return
-        }
-
-        const formatted = Object.entries(data).map(([key, value]) => {
-          const displayTime = value.timestamp || value.savedAt || null
-
-          return {
-            id: key,
-            deviceId: value.deviceId ?? 'No Device',
-            time: formatTimestamp(displayTime),
-            rawTimestamp: new Date(displayTime).getTime() || 0,
-            heartRate: value.heartRate ?? 0,
-            respiration: value.respiratoryRate ?? 0,
-            lungs: value.lungSound ?? 'No Data',
-            ecgSamples: Array.isArray(value.ecgSamples)
-              ? value.ecgSamples.join(', ')
-              : Object.values(value.ecgSamples ?? {}).join(', '),
+          if (!data) {
+            setHistoryData([])
+            setIsLoading(false)
+            return
           }
-        })
 
-        formatted.sort((a, b) => b.rawTimestamp - a.rawTimestamp)
-        setHistoryData(formatted)
-      })
+          const formatted = Object.entries(data).map(([key, value]) => {
+            const displayTime = value.timestamp || value.savedAt || null
+            const rawTimestamp = new Date(displayTime).getTime()
+
+            return {
+              id: key,
+              deviceId: value.deviceId ?? 'No Device',
+              time: formatTimestamp(displayTime),
+              rawTimestamp: Number.isNaN(rawTimestamp) ? 0 : rawTimestamp,
+              heartRate: Number(value.heartRate ?? 0),
+              respiration: Number(value.respiratoryRate ?? 0),
+              lungs: value.lungSound ?? 'No Data',
+              ecgSamples: Array.isArray(value.ecgSamples)
+                ? value.ecgSamples.join(', ')
+                : Object.values(value.ecgSamples ?? {}).join(', '),
+            }
+          })
+
+          formatted.sort((a, b) => b.rawTimestamp - a.rawTimestamp)
+
+          setHistoryData(formatted)
+          setIsLoading(false)
+        },
+        (error) => {
+          console.error('Firebase history listener error:', error)
+          setHistoryData([])
+          setIsLoading(false)
+        }
+      )
     })
 
     return () => {
       unsubscribeAuth()
-      if (unsubscribeHistory) unsubscribeHistory()
+
+      if (unsubscribeHistory) {
+        unsubscribeHistory()
+      }
     }
   }, [])
 
   const averageHeartRate = useMemo(() => {
     if (historyData.length === 0) return 0
-    const total = historyData.reduce((sum, item) => sum + item.heartRate, 0)
+
+    const total = historyData.reduce((sum, item) => {
+      return sum + Number(item.heartRate || 0)
+    }, 0)
+
     return Math.round(total / historyData.length)
   }, [historyData])
 
   const averageRespiration = useMemo(() => {
     if (historyData.length === 0) return 0
-    const total = historyData.reduce((sum, item) => sum + item.respiration, 0)
+
+    const total = historyData.reduce((sum, item) => {
+      return sum + Number(item.respiration || 0)
+    }, 0)
+
     return Math.round(total / historyData.length)
   }, [historyData])
 
@@ -129,6 +160,7 @@ function HistoryPage({ setActivePage }) {
     })
 
     const now = new Date()
+
     const fileName = `amuma_user_history_${now.getFullYear()}-${String(
       now.getMonth() + 1
     ).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}.xlsx`
@@ -178,14 +210,18 @@ function HistoryPage({ setActivePage }) {
             <h1>Health History</h1>
 
             <div className="history-actions">
-              <button className="export-btn" onClick={handleExportExcel}>
+              <button
+                className="export-btn"
+                onClick={handleExportExcel}
+                disabled={historyData.length === 0}
+              >
                 Export Excel
               </button>
 
               <button
                 className="delete-history-btn"
                 onClick={handleDeleteAllHistory}
-                disabled={isDeleting}
+                disabled={isDeleting || historyData.length === 0}
               >
                 {isDeleting ? 'Deleting...' : 'Delete All History'}
               </button>
@@ -242,7 +278,16 @@ function HistoryPage({ setActivePage }) {
                 </thead>
 
                 <tbody>
-                  {historyData.length > 0 ? (
+                  {isLoading ? (
+                    <tr>
+                      <td
+                        colSpan="5"
+                        style={{ textAlign: 'center', padding: '30px' }}
+                      >
+                        Loading history data...
+                      </td>
+                    </tr>
+                  ) : historyData.length > 0 ? (
                     historyData.map((item) => (
                       <tr key={item.id}>
                         <td>{item.time}</td>
